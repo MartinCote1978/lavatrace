@@ -1,0 +1,13 @@
+{
+	"ImportPath": "github.com/lavab/lavatrace",
+	"GoVersion": "go1.4",
+	"Packages": [
+		"github.com/lavab/lavatrace/cli"
+	],
+	"Deps": [
+		{
+			"ImportPath": "github.com/namsral/flag",
+			"Rev": "bd57b3fc9ada8271ff812ba54f938fe72749d969"
+		}
+	]
+}
