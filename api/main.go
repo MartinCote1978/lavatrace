@@ -12,6 +12,7 @@ import (
 
 	r "github.com/dancannon/gorethink"
 	"github.com/dchest/uniuri"
+	"github.com/getsentry/raven-go"
 	"github.com/lavab/goji"
 	"github.com/lavab/goji/web"
 	"github.com/namsral/flag"
@@ -25,6 +26,7 @@ var (
 	rethinkdbAddress  = flag.String("rethinkdb_address", "127.0.0.1:28015", "RethinkDB address")
 	rethinkdbDatabase = flag.String("rethinkdb_database", "lavatrace", "Name of the RethinkDB database to use")
 	adminToken        = flag.String("admin_token", uniuri.NewLen(uniuri.UUIDLen), "Admin token for source map uploads")
+	ravenDSN          = flag.String("raven_dsn", "", "Raven DSN")
 )
 
 var (
@@ -62,6 +64,12 @@ func main() {
 	}).Exec(session)
 	r.Db(*rethinkdbDatabase).TableCreate("reports").Exec(session)
 	r.Db(*rethinkdbDatabase).Table("reports").IndexCreate("version").Exec(session)
+
+	// Connect to Raven
+	rc, err := raven.NewClient(*ravenDSN, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Index page
 	goji.Get("/", func(w http.ResponseWriter, r *http.Request) {
@@ -124,49 +132,89 @@ func main() {
 			return
 		}
 
-		// Transform the stacktrace
-		for _, entry := range report.Entries {
-			// Prepare an array that will be eventually inserted into entry
-			result := []string{}
+		// Prepare a new packet
+		packet := &raven.Packet{
+			Interfaces: []raven.Interface{},
+			Extra: map[string]interface{}{
+				"commit_id": report.CommitID,
+				"version":   report.Version,
+				"assets":    report.Assets,
+			},
+			Platform: "javascript",
+			Release:  report.CommitID,
+		}
 
-			// OldStacktrace is a string with format:
+		// Transform entries into exceptions
+		for _, entry := range report.Entries {
+			// Prepare a new Exception
+			ex := &raven.Exception{
+				Type:  entry.Type,
+				Value: entry.Message,
+				Stacktrace: &raven.Stacktrace{
+					Frames: []*raven.StacktraceFrame{},
+				},
+			}
+
+			// Stacktrace is a string with format:
 			//   fileIndex:line:column
-			stack := strings.Split(entry.OldStacktrace, ";")
-			for _, part := range stack {
+			for _, part := range strings.Split(entry.Stacktrace, ";") {
 				// Parse each call
-				info := strings.Split(part, ":")
-				if len(info) < 3 {
+				call := strings.Split(part, ":")
+				if len(call) < 3 {
 					w.WriteHeader(400)
 					w.Write([]byte("Invalid stacktrace"))
 					return
 				}
 
-				// NewStacktrace has a format of:
-				//   file:originalName:line:column
-				res := ""
-				if info[0] == "/" {
-					// We don't know the source, so file and name are "empty"
-					res = "/:/:" + info[1] + ":" + info[2]
-				} else if info[0] == "native" {
-					// Native calls - no need to look up
-					res = "native:native:" + info[1] + ":" + info[2]
-				} else {
-					// Parse the index
-					ind, err := strconv.Atoi(info[0])
+				// Integer parsing helper
+				err = nil
+				mustParse := func(input string) int {
 					if err != nil {
-						w.WriteHeader(400)
-						w.Write([]byte(err.Error()))
-						return
+						x, e := strconv.Atoi(input)
+						if e != nil {
+							err = e
+							return 0
+						}
+
+						return x
 					}
-					// Parse the line
-					line, err := strconv.Atoi(info[1])
-					if err != nil {
-						w.WriteHeader(400)
-						w.Write([]byte(err.Error()))
-						return
-					}
-					// Parse the column
-					col, err := strconv.Atoi(info[2])
+
+					return 0
+				}
+
+				// Parse the fields
+				var (
+					fileIndex = call[0]
+					lineNo    = mustParse(call[1])
+					columnNo  = mustParse(call[2])
+				)
+				if err != nil {
+					w.WriteHeader(400)
+					w.Write([]byte(err.Error()))
+					return
+				}
+
+				// First case - we don't know the source
+				switch fileIndex {
+				case "/":
+					ex.Stacktrace.Frames = append(ex.Stacktrace.Frames, &raven.StacktraceFrame{
+						Filename: "unknown",
+						Function: "unknown",
+						Lineno:   lineNo,
+						Colno:    columnNo,
+						InApp:    true,
+					})
+				case "native":
+					ex.Stacktrace.Frames = append(ex.Stacktrace.Frames, &raven.StacktraceFrame{
+						Filename: "native",
+						Function: "native",
+						Lineno:   lineNo,
+						Colno:    columnNo,
+						InApp:    false,
+					})
+				default:
+					// Convert file index to an int
+					fii, err := strconv.Atoi(fileIndex)
 					if err != nil {
 						w.WriteHeader(400)
 						w.Write([]byte(err.Error()))
@@ -174,47 +222,60 @@ func main() {
 					}
 
 					// Map index to file path
-					if len(report.Assets) < ind+1 {
+					if len(report.Assets) < fii+1 {
 						w.WriteHeader(400)
 						w.Write([]byte("Invalid asset ID"))
 						return
 					}
-					asset := report.Assets[ind]
+					asset := report.Assets[fii]
 
-					// Get the filename
+					// Get the asset's filename
 					filename := path.Base(asset) + ".map"
 
-					// Get the mapping
-					mapping, err := getMapping(report.CommitID, filename, line, col)
+					// Map the data
+					mapping, err := getMapping(report.CommitID, filename, lineNo, columnNo)
 					if err != nil {
 						w.WriteHeader(500)
 						w.Write([]byte(err.Error()))
 						return
 					}
 
-					// Generate the line
-					if mapping.OriginalName == "" {
-						mapping.OriginalName = "UNKNOWN" // Might as well be left empty
-					}
-
-					// Set the res variable to later append it to NewStacktrace
-					res = mapping.OriginalFile + ":" + mapping.OriginalName + ":" + strconv.Itoa(mapping.OriginalLine) + ":" + strconv.Itoa(mapping.OriginalColumn)
+					// Append it to the stacktrace
+					ex.Stacktrace.Frames = append(ex.Stacktrace.Frames, &raven.StacktraceFrame{
+						Filename:     mapping.OriginalFile,
+						Function:     mapping.OriginalName,
+						Lineno:       mapping.OriginalLine,
+						Colno:        mapping.OriginalColumn,
+						Module:       mapping.OriginalFile + "." + mapping.OriginalName,
+						AbsolutePath: asset,
+						InApp:        true,
+					})
 				}
-
-				result = append(result, res)
 			}
 
-			entry.NewStacktrace = result
+			// Use filename as module of exception
+			ex.Module = ex.Stacktrace.Frames[len(ex.Stacktrace.Frames)-1].Filename
+
+			// Append the Exception to interfaces
+			packet.Interfaces = append(packet.Interfaces, ex)
 		}
 
-		// Save it into the database
-		if err := r.Db(*rethinkdbDatabase).Table("reports").Insert(report).Exec(session); err != nil {
+		// Set the culprit and message
+		packet.Culprit =
+			packet.Interfaces[len(packet.Interfaces)-1].(raven.Culpriter).Culprit()
+		packet.Message =
+			packet.Interfaces[len(packet.Interfaces)-1].(*raven.Exception).Value
+
+		// Send the packet to Sentry
+		eid, ch := rc.Capture(packet, nil)
+		err = <-ch
+		if err != nil {
 			w.WriteHeader(500)
 			w.Write([]byte(err.Error()))
 			return
 		}
 
-		w.Write([]byte("Success"))
+		w.Write([]byte(eid))
 		return
 	})
 
