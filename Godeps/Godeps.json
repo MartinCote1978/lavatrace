@@ -2,7 +2,7 @@
 	"ImportPath": "github.com/lavab/lavatrace",
 	"GoVersion": "go1.4",
 	"Packages": [
-		"github.com/lavab/lavatrace/api"
+		"./..."
 	],
 	"Deps": [
 		{
@@ -18,6 +18,10 @@
 		{
 			"ImportPath": "github.com/dchest/uniuri",
 			"Rev": "396b73a566d0993675357e6648bb98587a6162b4"
+		},
+		{
+			"ImportPath": "github.com/getsentry/raven-go",
+			"Rev": "c8f8fb7c415203f52ca882e2661d21bc6dcb54d7"
 		},
 		{
 			"ImportPath": "github.com/lavab/goji",
