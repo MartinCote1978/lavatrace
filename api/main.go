@@ -51,7 +51,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Set up the session
+	// Set up the database
 	r.DbCreate(*rethinkdbDatabase).Exec(session)
 	r.Db(*rethinkdbDatabase).TableCreate("maps").Exec(session)
 	r.Db(*rethinkdbDatabase).Table("maps").IndexCreateFunc("commitName", func(row r.Term) interface{} {
@@ -68,17 +68,18 @@ func main() {
 		w.Write([]byte("lavab/lavatrace 0.1.0"))
 	})
 
-	// Map uploading
+	// Map uploading header (alloc it here so that it won't be alloc'd in each request)
 	tokenHeader := "Bearer " + *adminToken
 
 	goji.Post("/maps/:commit", func(c web.C, w http.ResponseWriter, req *http.Request) {
-		// Check a token
+		// Check if the token is valid
 		if header := req.Header.Get("Authorization"); header == "" || header != tokenHeader {
 			w.WriteHeader(403)
 			w.Write([]byte("Invalid authorization token"))
 			return
 		}
 
+		// Decode the body
 		var request map[string]string
 		if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
 			w.WriteHeader(400)
@@ -86,6 +87,7 @@ func main() {
 			return
 		}
 
+		// Try to get the commit hash from the URL params
 		commit, ok := c.URLParams["commit"]
 		if !ok {
 			w.WriteHeader(400)
@@ -93,6 +95,7 @@ func main() {
 			return
 		}
 
+		// Insert every map into the database
 		for key, value := range request {
 			if err := r.Db(*rethinkdbDatabase).Table("maps").Insert(&Map{
 				ID:     uniuri.NewLen(uniuri.UUIDLen),
@@ -106,12 +109,14 @@ func main() {
 			}
 		}
 
+		// Return some dumb text
 		w.Write([]byte("Success"))
 		return
 	})
 
+	// Report - registers a new event
 	goji.Post("/report", func(w http.ResponseWriter, req *http.Request) {
-		// Parse the JSON
+		// Parse the request body
 		var report *models.Report
 		if err := json.NewDecoder(req.Body).Decode(&report); err != nil {
 			w.WriteHeader(400)
@@ -121,9 +126,14 @@ func main() {
 
 		// Transform the stacktrace
 		for _, entry := range report.Entries {
+			// Prepare an array that will be eventually inserted into entry
 			result := []string{}
+
+			// OldStacktrace is a string with format:
+			//   fileIndex:line:column
 			stack := strings.Split(entry.OldStacktrace, ";")
 			for _, part := range stack {
+				// Parse each call
 				info := strings.Split(part, ":")
 				if len(info) < 3 {
 					w.WriteHeader(400)
@@ -131,24 +141,31 @@ func main() {
 					return
 				}
 
+				// NewStacktrace has a format of:
+				//   file:originalName:line:column
 				res := ""
 				if info[0] == "/" {
+					// We don't know the source, so file and name are "empty"
 					res = "/:/:" + info[1] + ":" + info[2]
 				} else if info[0] == "native" {
+					// Native calls - no need to look up
 					res = "native:native:" + info[1] + ":" + info[2]
 				} else {
+					// Parse the index
 					ind, err := strconv.Atoi(info[0])
 					if err != nil {
 						w.WriteHeader(400)
 						w.Write([]byte(err.Error()))
 						return
 					}
-					row, err := strconv.Atoi(info[1])
+					// Parse the line
+					line, err := strconv.Atoi(info[1])
 					if err != nil {
 						w.WriteHeader(400)
 						w.Write([]byte(err.Error()))
 						return
 					}
+					// Parse the column
 					col, err := strconv.Atoi(info[2])
 					if err != nil {
 						w.WriteHeader(400)
@@ -168,18 +185,19 @@ func main() {
 					filename := path.Base(asset) + ".map"
 
 					// Get the mapping
-					mapping, err := getMapping(report.CommitID, filename, row, col)
+					mapping, err := getMapping(report.CommitID, filename, line, col)
 					if err != nil {
 						w.WriteHeader(500)
 						w.Write([]byte(err.Error()))
 						return
 					}
 
-					// Generate the row
+					// Generate the line
 					if mapping.OriginalName == "" {
-						mapping.OriginalName = "UNKNOWN"
+						mapping.OriginalName = "UNKNOWN" // Might as well be left empty
 					}
 
+					// Set the res variable to later append it to NewStacktrace
 					res = mapping.OriginalFile + ":" + mapping.OriginalName + ":" + strconv.Itoa(mapping.OriginalLine) + ":" + strconv.Itoa(mapping.OriginalColumn)
 				}
 
