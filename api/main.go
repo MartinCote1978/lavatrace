@@ -169,7 +169,7 @@ func main() {
 				// Integer parsing helper
 				err = nil
 				mustParse := func(input string) int {
-					if err != nil {
+					if err == nil {
 						x, e := strconv.Atoi(input)
 						if e != nil {
 							err = e
