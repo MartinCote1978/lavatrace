@@ -188,11 +188,6 @@ func main() {
 					lineNo    = mustParse(call[1])
 					columnNo  = mustParse(call[2])
 				)
-				if err != nil {
-					w.WriteHeader(400)
-					w.Write([]byte(err.Error()))
-					return
-				}
 
 				// First case - we don't know the source
 				switch fileIndex {
