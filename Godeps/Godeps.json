@@ -20,13 +20,13 @@
 			"Rev": "396b73a566d0993675357e6648bb98587a6162b4"
 		},
 		{
-			"ImportPath": "github.com/getsentry/raven-go",
-			"Rev": "c8f8fb7c415203f52ca882e2661d21bc6dcb54d7"
-		},
-		{
 			"ImportPath": "github.com/lavab/goji",
 			"Comment": "v0.9.0-11-gfddd188",
 			"Rev": "fddd188c6e76edb449a3e30163d459d26f8e29c0"
+		},
+		{
+			"ImportPath": "github.com/lavab/raven-go",
+			"Rev": "2c3da3f521e6c450148632eac25df11df0a57bb8"
 		},
 		{
 			"ImportPath": "github.com/namsral/flag",

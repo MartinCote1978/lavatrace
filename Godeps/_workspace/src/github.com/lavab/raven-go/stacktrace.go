@@ -40,13 +40,14 @@ type StacktraceFrame struct {
 	Module   string `json:"module,omitempty"`
 
 	// Optional
-	Lineno       int      `json:"lineno,omitempty"`
-	Colno        int      `json:"colno,omitempty"`
-	AbsolutePath string   `json:"abs_path,omitempty"`
-	ContextLine  string   `json:"context_line,omitempty"`
-	PreContext   []string `json:"pre_context,omitempty"`
-	PostContext  []string `json:"post_context,omitempty"`
-	InApp        bool     `json:"in_app,omitempty"`
+	Lineno       int                    `json:"lineno,omitempty"`
+	Colno        int                    `json:"colno,omitempty"`
+	AbsolutePath string                 `json:"abs_path,omitempty"`
+	ContextLine  string                 `json:"context_line,omitempty"`
+	PreContext   []string               `json:"pre_context,omitempty"`
+	PostContext  []string               `json:"post_context,omitempty"`
+	InApp        bool                   `json:"in_app,omitempty"`
+	Vars         map[string]interface{} `json:"vars,omitempty"`
 }
 
 // Intialize and populate a new stacktrace, skipping skip frames.

@@ -57,7 +57,7 @@ func TestStacktrace(t *testing.T) {
 	if f.Module != thisPackage {
 		t.Error("incorrect Module:", f.Module)
 	}
-	if f.Lineno != 83 {
+	if f.Lineno != 86 {
 		t.Error("incorrect Lineno:", f.Lineno)
 	}
 	if f.ContextLine != "\treturn NewStacktrace(0, 2, []string{thisPackage})" {
@@ -71,6 +71,9 @@ func TestStacktrace(t *testing.T) {
 	}
 	if !f.InApp {
 		t.Error("expected InApp to be true")
+	}
+	if f.Vars != nil {
+		t.Error("expected Vars to be empty")
 	}
 
 	if st.Culprit() != fmt.Sprintf("%s.trace", thisPackage) {

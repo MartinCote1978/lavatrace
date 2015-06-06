@@ -12,9 +12,9 @@ import (
 
 	r "github.com/dancannon/gorethink"
 	"github.com/dchest/uniuri"
-	"github.com/getsentry/raven-go"
 	"github.com/lavab/goji"
 	"github.com/lavab/goji/web"
+	"github.com/lavab/raven-go"
 	"github.com/namsral/flag"
 	"github.com/neelance/sourcemap"
 
@@ -255,6 +255,15 @@ func main() {
 
 			// Use filename as module of exception
 			ex.Module = ex.Stacktrace.Frames[len(ex.Stacktrace.Frames)-1].Filename
+
+			// Transform objects
+			objects := map[string]interface{}{}
+			for i, v := range entry.Objects {
+				objects[strconv.Itoa(i)] = v
+			}
+
+			// Set Vars of the last frame
+			ex.Stacktrace.Frames[len(ex.Stacktrace.Frames)-1].Vars = objects
 
 			// Append the Exception to interfaces
 			packet.Interfaces = append(packet.Interfaces, ex)
