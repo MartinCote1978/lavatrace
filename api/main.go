@@ -249,11 +249,8 @@ func main() {
 				}
 			}
 
-			// Transform objects
-			objects := map[string]interface{}{}
-			for i, v := range entry.Objects {
-				objects[strconv.Itoa(i)] = v
-			}
+			// Put entry into entries
+			lo.Entries = append(lo.Entries, en)
 		}
 
 		// Append the Log to interfaces
