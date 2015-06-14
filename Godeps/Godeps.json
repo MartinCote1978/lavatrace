@@ -6,18 +6,26 @@
 	],
 	"Deps": [
 		{
-			"ImportPath": "code.google.com/p/goprotobuf/proto",
-			"Comment": "go.r60-163",
-			"Rev": "9352842ae63ee1d7e74e074ce7bb10370c4b6b9e"
+			"ImportPath": "github.com/Sirupsen/logrus",
+			"Comment": "v0.8.2-10-g21d4508",
+			"Rev": "21d4508646ae56d79244bd9046c1df63a5fa8c37"
+		},
+		{
+			"ImportPath": "github.com/cenkalti/backoff",
+			"Rev": "6c45d6bc1e78d94431dff8fc28a99f20bafa355a"
 		},
 		{
 			"ImportPath": "github.com/dancannon/gorethink",
-			"Comment": "v0.6.3-13-g67d2428",
-			"Rev": "67d2428ba6800ad5a3441f8740dbc77070e253b1"
+			"Comment": "v1.0.0-rc.2",
+			"Rev": "c097463176129ff5598c1a57693f1bfa13d99ba5"
 		},
 		{
 			"ImportPath": "github.com/dchest/uniuri",
 			"Rev": "396b73a566d0993675357e6648bb98587a6162b4"
+		},
+		{
+			"ImportPath": "github.com/golang/protobuf/proto",
+			"Rev": "34a5f244f1c01cdfee8e60324258cfbb97a42aec"
 		},
 		{
 			"ImportPath": "github.com/lavab/goji",
@@ -26,7 +34,7 @@
 		},
 		{
 			"ImportPath": "github.com/lavab/raven-go",
-			"Rev": "2c3da3f521e6c450148632eac25df11df0a57bb8"
+			"Rev": "d54b4f2c9b90aa14edb1e27b3d5a72553412aeb0"
 		},
 		{
 			"ImportPath": "github.com/namsral/flag",

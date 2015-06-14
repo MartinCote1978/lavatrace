@@ -54,16 +54,16 @@ func main() {
 	}
 
 	// Set up the database
-	r.DbCreate(*rethinkdbDatabase).Exec(session)
-	r.Db(*rethinkdbDatabase).TableCreate("maps").Exec(session)
-	r.Db(*rethinkdbDatabase).Table("maps").IndexCreateFunc("commitName", func(row r.Term) interface{} {
+	r.DBCreate(*rethinkdbDatabase).Exec(session)
+	r.DB(*rethinkdbDatabase).TableCreate("maps").Exec(session)
+	r.DB(*rethinkdbDatabase).Table("maps").IndexCreateFunc("commitName", func(row r.Term) interface{} {
 		return []interface{}{
 			row.Field("commit"),
 			row.Field("name"),
 		}
 	}).Exec(session)
-	r.Db(*rethinkdbDatabase).TableCreate("reports").Exec(session)
-	r.Db(*rethinkdbDatabase).Table("reports").IndexCreate("version").Exec(session)
+	r.DB(*rethinkdbDatabase).TableCreate("reports").Exec(session)
+	r.DB(*rethinkdbDatabase).Table("reports").IndexCreate("version").Exec(session)
 
 	// Connect to Raven
 	rc, err := raven.NewClient(*ravenDSN, nil)
@@ -105,7 +105,7 @@ func main() {
 
 		// Insert every map into the database
 		for key, value := range request {
-			if err := r.Db(*rethinkdbDatabase).Table("maps").Insert(&Map{
+			if err := r.DB(*rethinkdbDatabase).Table("maps").Insert(&Map{
 				ID:     uniuri.NewLen(uniuri.UUIDLen),
 				Commit: commit,
 				Name:   key,
@@ -135,24 +135,26 @@ func main() {
 		// Prepare a new packet
 		packet := &raven.Packet{
 			Interfaces: []raven.Interface{},
-			Extra: map[string]interface{}{
-				"commit_id": report.CommitID,
-				"version":   report.Version,
-				"assets":    report.Assets,
-			},
-			Platform: "javascript",
-			Release:  report.CommitID,
+			Platform:   "javascript",
+			Release:    report.CommitID,
+		}
+
+		lo := &models.Log{
+			CommitID: report.CommitID,
+			Version:  report.Version,
+			Assets:   report.Assets,
+			Entries:  []*models.LogEntry{},
 		}
 
 		// Transform entries into exceptions
 		for _, entry := range report.Entries {
-			// Prepare a new Exception
-			ex := &raven.Exception{
-				Type:  entry.Type,
-				Value: entry.Message,
-				Stacktrace: &raven.Stacktrace{
-					Frames: []*raven.StacktraceFrame{},
-				},
+			// Prepare a new Entry
+			en := &models.LogEntry{
+				Date:    entry.Date,
+				Type:    entry.Type,
+				Message: entry.Message,
+				Objects: entry.Objects,
+				Frames:  []*models.LogFrame{},
 			}
 
 			// Stacktrace is a string with format:
@@ -192,19 +194,19 @@ func main() {
 				// First case - we don't know the source
 				switch fileIndex {
 				case "/":
-					ex.Stacktrace.Frames = append(ex.Stacktrace.Frames, &raven.StacktraceFrame{
+					en.Frames = append(en.Frames, &models.LogFrame{
 						Filename: "unknown",
-						Function: "unknown",
-						Lineno:   lineNo,
-						Colno:    columnNo,
+						Name:     "unknown",
+						LineNo:   lineNo,
+						ColNo:    columnNo,
 						InApp:    true,
 					})
 				case "native":
-					ex.Stacktrace.Frames = append(ex.Stacktrace.Frames, &raven.StacktraceFrame{
+					en.Frames = append(en.Frames, &models.LogFrame{
 						Filename: "native",
-						Function: "native",
-						Lineno:   lineNo,
-						Colno:    columnNo,
+						Name:     "native",
+						LineNo:   lineNo,
+						ColNo:    columnNo,
 						InApp:    false,
 					})
 				default:
@@ -236,39 +238,33 @@ func main() {
 					}
 
 					// Append it to the stacktrace
-					ex.Stacktrace.Frames = append(ex.Stacktrace.Frames, &raven.StacktraceFrame{
-						Filename:     mapping.OriginalFile,
-						Function:     mapping.OriginalName,
-						Lineno:       mapping.OriginalLine,
-						Colno:        mapping.OriginalColumn,
-						Module:       mapping.OriginalFile + "." + mapping.OriginalName,
-						AbsolutePath: asset,
-						InApp:        true,
+					en.Frames = append(en.Frames, &models.LogFrame{
+						Filename: mapping.OriginalFile,
+						Name:     mapping.OriginalName,
+						LineNo:   mapping.OriginalLine,
+						ColNo:    mapping.OriginalColumn,
+						InApp:    true,
+						AbsPath:  asset,
 					})
 				}
 			}
-
-			// Use filename as module of exception
-			ex.Module = ex.Stacktrace.Frames[len(ex.Stacktrace.Frames)-1].Filename
 
 			// Transform objects
 			objects := map[string]interface{}{}
 			for i, v := range entry.Objects {
 				objects[strconv.Itoa(i)] = v
 			}
-
-			// Set Vars of the last frame
-			ex.Stacktrace.Frames[len(ex.Stacktrace.Frames)-1].Vars = objects
-
-			// Append the Exception to interfaces
-			packet.Interfaces = append(packet.Interfaces, ex)
 		}
 
+		// Append the Log to interfaces
+		packet.Interfaces = append(packet.Interfaces, lo)
+
 		// Set the culprit and message
-		packet.Culprit =
-			packet.Interfaces[len(packet.Interfaces)-1].(raven.Culpriter).Culprit()
-		packet.Message =
-			packet.Interfaces[len(packet.Interfaces)-1].(*raven.Exception).Value
+		lastEntry := lo.Entries[len(lo.Entries)-1]
+		lastFrame := lastEntry.Frames[len(lastEntry.Frames)-1]
+
+		packet.Culprit = lastFrame.Name + "@" + strconv.Itoa(lastFrame.LineNo) + ":" + strconv.Itoa(lastFrame.ColNo)
+		packet.Message = lastEntry.Message
 
 		// Send the packet to Sentry
 		eid, ch := rc.Capture(packet, nil)
@@ -346,7 +342,7 @@ func getMapping(commit, filename string, row, col int) (*sourcemap.Mapping, erro
 	defer stateLock.Unlock()
 
 	// Get the map from database
-	cursor, err := r.Db(*rethinkdbDatabase).Table("maps").GetAllByIndex("commitName", []interface{}{commit, filename}).Run(session)
+	cursor, err := r.DB(*rethinkdbDatabase).Table("maps").GetAllByIndex("commitName", []interface{}{commit, filename}).Run(session)
 	if err != nil {
 		return nil, err
 	}
